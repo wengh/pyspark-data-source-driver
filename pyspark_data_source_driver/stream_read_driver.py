@@ -18,6 +18,8 @@ from pyspark_data_source_driver.read_driver import ReadDriverBase
 
 logger = logging.getLogger(__name__)
 
+_sentinel = object()
+
 
 @typechecked  # Enable runtime type checking
 class StreamReadDriver(ReadDriverBase):
@@ -83,7 +85,6 @@ class ReaderStream:
         self.schema = schema
         self.reader = _streamReader(data_source, schema)
         self.pickled_reader = pickleSer.dumps(self.reader)
-        self.start = self.reader.initialOffset()
 
     def _read(self, partition: InputPartition) -> Iterable[pa.RecordBatch]:
         reader = cast(DataSourceStreamReader, pickleSer.loads(self.pickled_reader))
@@ -100,6 +101,12 @@ class ReaderStream:
         Get the next batch if the latest offset changed.
         """
         latest = self.reader.latestOffset()
+        if not hasattr(self, "start"):
+            # initialOffset is called after the first call to latestOffset
+            self.start = self.reader.initialOffset()
+        elif self.start != latest:
+            self.reader.commit(self.start)
+
         if self.start == latest:
             return None
         partitions = self.reader.partitions(self.start, latest)
@@ -107,7 +114,6 @@ class ReaderStream:
             batch for part in partitions for batch in self._read(part)
         )
         self.start = latest
-        self.reader.commit(latest)
         return result
 
     def next(self) -> pa.Table:
