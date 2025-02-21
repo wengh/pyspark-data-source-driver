@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from typing import Sequence
+
 import pytest
 from pyspark.sql.datasource import DataSource, DataSourceReader, InputPartition
 from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 from typeguard import TypeCheckError
 
 from pyspark_data_source_driver import ReadDriver
+from tests.helper import spark
 
 
 class SimpleDataSource(DataSource):
@@ -23,13 +25,6 @@ class SimpleDataSourceReader(DataSourceReader):
         assert partition is None
         yield ("Alice", 20)
         yield ("Bob", 30)
-
-
-@pytest.fixture(scope="session")
-def spark():
-    from pyspark.sql import SparkSession
-
-    return SparkSession.builder.getOrCreate()
 
 
 def test_read():

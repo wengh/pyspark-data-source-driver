@@ -1,9 +1,12 @@
 from typing import Sequence
+
 import pytest
+from pyspark.sql import Row, SparkSession
 from pyspark.sql.datasource import DataSource, DataSourceStreamReader, InputPartition
 from pyspark.sql.types import IntegerType, StructField, StructType
 
 from pyspark_data_source_driver import StreamReadDriver
+from tests.helper import spark
 
 
 class CounterFinished(Exception):
@@ -75,10 +78,10 @@ def test_commit():
     assert excinfo.value.sequence == [2, 4]
 
 
-def test_call_sequence():
+class TestCallSequence:
     class MyDataSource(CounterDataSource):
         def streamReader(self, schema: StructType):
-            return MyDataSourceStreamReader(self.options)
+            return TestCallSequence.MyDataSourceStreamReader(self.options)
 
     class MyDataSourceStreamReader(CounterDataSourceStreamReader):
         def __init__(self, options):
@@ -105,12 +108,11 @@ def test_call_sequence():
             self.gaps = "dummy"  # should not be visible to future reads
             return super().read(partition)
 
-    stream = StreamReadDriver(MyDataSource).options(sizes="[3, 0, 3]").load()
-    assert next(stream).to_pydict() == {"id": [0, 1, 2]}
-    assert next(stream).to_pydict() == {"id": [3, 4, 5]}
-    with pytest.raises(CounterFinished) as excinfo:
-        next(stream)
-    assert excinfo.value.sequence == [
+    options = {
+        "sizes": "[3, 0, 3]",
+    }
+
+    expected = [
         "latestOffset",
         "initialOffset",
         "partitions",
@@ -120,6 +122,32 @@ def test_call_sequence():
         "partitions",
         "latestOffset",
     ]
+
+    def test_driver(self):
+        stream = StreamReadDriver(self.MyDataSource).options(**self.options).load()
+        assert next(stream).to_pydict() == {"id": [0, 1, 2]}
+        assert next(stream).to_pydict() == {"id": [3, 4, 5]}
+        with pytest.raises(CounterFinished) as excinfo:
+            next(stream)
+        assert excinfo.value.sequence == self.expected
+
+    def test_spark(self, spark: SparkSession):
+        import re
+
+        spark.dataSource.register(self.MyDataSource)
+        pattern = re.escape(repr(self.expected))
+        with pytest.raises(Exception, match=pattern):
+            (
+                spark.readStream.format("MyDataSource")
+                .options(**self.options)
+                .load()
+                .writeStream.format("memory")
+                .queryName("test")
+                .start()
+                .awaitTermination()
+            )
+        result = spark.sql("select * from test")
+        assert result.collect() == [Row(id=i) for i in range(6)]
 
 
 def test_init_not_pickleable():
