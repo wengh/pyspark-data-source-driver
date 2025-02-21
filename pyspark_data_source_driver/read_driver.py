@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import logging
 from typing import Dict, List, Optional, Sequence, Type, TypeVar, Union, cast
 
@@ -20,55 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @typechecked  # Enable runtime type checking
-class ReadDriver:
-    """
-    A lightweight driver to read data from a data source, for testing and prototyping.
-
-    It tries its best to enforce the Python Data Source API requirements, by:
-    - Pickling and unpickling objects to simulate the behavior of Spark's serialization.
-    - Enforce type hints using `typeguard`.
-
-    Examples
-    --------
-
-    Define a simple data source and its reader:
-    >>> from pyspark.sql.types import IntegerType, StructField, StructType
-    >>> class CounterDataSource(DataSource):
-    ...     def schema(self):
-    ...         return StructType(
-    ...             [StructField("id", IntegerType())]
-    ...         )
-    ...
-    ...     def reader(self, schema: StructType):
-    ...         return CounterDataSourceReader(self.options)
-    ...
-    >>> class CounterDataSourceReader(DataSourceReader):
-    ...     def __init__(self, options):
-    ...         self.num_rows = int(options.get("num_rows", 3))
-    ...
-    ...     def partitions(self):
-    ...         return [InputPartition(i) for i in range(self.num_rows)]
-    ...
-    ...     def read(self, partition):
-    ...         yield (partition.value,)
-    ...
-
-    Read data from the data source.
-
-    >>> from pyspark_data_source_driver.read_driver import ReadDriver
-    >>> table = ReadDriver(CounterDataSource).options(num_rows="1").load()
-    >>> table.to_pydict()
-    {'id': [0]}
-
-    Specify the schema.
-
-    >>> from pyspark.sql import SparkSession
-    >>> spark = SparkSession.builder.getOrCreate()
-    >>> table = ReadDriver(CounterDataSource).schema("index string").load()
-    >>> table.to_pydict()
-    {'index': ['0', '1', '2']}
-    """
-
+class ReadDriverBase(ABC):
     def __init__(self, data_source: Type[DataSource]):
         self.data_source_class = data_source
         self._options: Dict[str, str] = CaseInsensitiveDict()  # type: ignore
@@ -105,13 +58,14 @@ class ReadDriver:
         self._schema = self._cast_schema(schema)
         return self
 
+    @abstractmethod
     def load(self, path: Optional[str] = None):
-        """
-        Loads data from a data source and returns it as a :class:`pyarrow.Table`.
-        """
         if path is not None:
             self._options["path"] = path
-        return self._read()
+        data_source = self.data_source_class(self._options)
+        data_source = self._pickle_unpickle(data_source)
+        schema = self._schema or self._cast_schema(data_source.schema())
+        return data_source, schema
 
     @staticmethod
     def _cast_schema(schema: Union[StructType, str]) -> StructType:
@@ -119,10 +73,67 @@ class ReadDriver:
             return cast(StructType, StructType.fromDDL(schema))
         return schema
 
-    def _read(self) -> pa.Table:
-        data_source = self.data_source_class(self._options)
-        data_source = self._pickle_unpickle(data_source)
-        schema = self._schema or self._cast_schema(data_source.schema())
+    @staticmethod
+    def _pickle_unpickle(obj: T) -> T:
+        return pickleSer.loads(pickleSer.dumps(obj))
+
+
+@typechecked  # Enable runtime type checking
+class ReadDriver(ReadDriverBase):
+    """
+    A lightweight driver to read data from a data source, for testing and prototyping.
+
+    The read result is returned as a :class:`pyarrow.Table`.
+
+    It tries its best to enforce the Python Data Source API requirements, by:
+    - Pickling and unpickling objects to simulate the behavior of Spark's serialization.
+    - Enforce type hints using `typeguard`.
+
+    Examples
+    --------
+
+    Define a simple data source and its reader:
+    >>> from pyspark.sql.datasource import DataSource, DataSourceReader, InputPartition
+    >>> from pyspark.sql.types import IntegerType, StructField, StructType
+    >>> class CounterDataSource(DataSource):
+    ...     def schema(self):
+    ...         return StructType([StructField("id", IntegerType())])
+    ...
+    ...     def reader(self, schema: StructType):
+    ...         return CounterDataSourceReader(self.options)
+    ...
+    >>> class CounterDataSourceReader(DataSourceReader):
+    ...     def __init__(self, options):
+    ...         self.num_rows = int(options.get("num_rows", 3))
+    ...
+    ...     def partitions(self):
+    ...         return [InputPartition(i) for i in range(self.num_rows)]
+    ...
+    ...     def read(self, partition):
+    ...         yield (partition.value,)
+    ...
+
+    Read data from the data source.
+
+    >>> from pyspark_data_source_driver import ReadDriver
+    >>> table = ReadDriver(CounterDataSource).options(num_rows="1").load()
+    >>> table.to_pydict()
+    {'id': [0]}
+
+    Specify the schema.
+
+    >>> from pyspark.sql import SparkSession
+    >>> spark = SparkSession.builder.getOrCreate()
+    >>> table = ReadDriver(CounterDataSource).schema("index string").load()
+    >>> table.to_pydict()
+    {'index': ['0', '1', '2']}
+    """
+
+    def load(self, path: Optional[str] = None) -> pa.Table:
+        """
+        Loads data from a data source and returns it as a :class:`pyarrow.Table`.
+        """
+        data_source, schema = super().load(path)
         reader = data_source.reader(schema)
         pickled_reader = pickleSer.dumps(reader)
         # Mutations made by partitions() are not saved
@@ -157,7 +168,3 @@ class ReadDriver:
                 exc_info=True,
             )
             return [None]
-
-    @staticmethod
-    def _pickle_unpickle(obj: T) -> T:
-        return pickleSer.loads(pickleSer.dumps(obj))
