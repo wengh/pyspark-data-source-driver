@@ -62,9 +62,6 @@ def test_commit():
             return MyDataSourceStreamReader(self.options)
 
     class MyDataSourceStreamReader(CounterDataSourceStreamReader):
-        def __init__(self, options):
-            super().__init__(options)
-
         def commit(self, end: dict):
             self.log(end["offset"])
             self.current += 1
@@ -84,9 +81,6 @@ class TestCallSequence:
             return TestCallSequence.MyDataSourceStreamReader(self.options)
 
     class MyDataSourceStreamReader(CounterDataSourceStreamReader):
-        def __init__(self, options):
-            super().__init__(options)
-
         def initialOffset(self):
             self.log("initialOffset")
             return super().initialOffset()
@@ -123,7 +117,7 @@ class TestCallSequence:
         "latestOffset",
     ]
 
-    def test_driver(self):
+    def test_call_sequence_driver(self):
         stream = StreamReadDriver(self.MyDataSource).options(**self.options).load()
         assert next(stream).to_pydict() == {"id": [0, 1, 2]}
         assert next(stream).to_pydict() == {"id": [3, 4, 5]}
@@ -131,7 +125,7 @@ class TestCallSequence:
             next(stream)
         assert excinfo.value.sequence == self.expected
 
-    def test_spark(self, spark: SparkSession):
+    def test_call_sequence_spark(self, spark: SparkSession):
         import re
 
         spark.dataSource.register(self.MyDataSource)

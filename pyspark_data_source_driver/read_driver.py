@@ -1,5 +1,5 @@
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Sequence, Type, TypeVar, Union, cast
 
 import pyarrow as pa
@@ -9,6 +9,7 @@ from pyspark.sql.datasource import (
     DataSourceReader,
     InputPartition,
 )
+from pyspark.sql.pandas.types import to_arrow_schema
 from pyspark.sql.types import StructType
 from pyspark.sql.worker.plan_data_source_read import records_to_arrow_batches
 from pyspark.worker_util import pickleSer
@@ -152,7 +153,7 @@ class ReadDriver(ReadDriverBase):
                 )
             )
 
-        return pa.Table.from_batches(batches)
+        return pa.Table.from_batches(batches, schema=to_arrow_schema(schema))
 
     @classmethod
     def _get_partitions(

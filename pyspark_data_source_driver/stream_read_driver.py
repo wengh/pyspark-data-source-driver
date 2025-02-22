@@ -1,14 +1,14 @@
 import logging
-from typing import Dict, Iterable, List, Optional, Sequence, Type, TypeVar, Union, cast
+from typing import Iterable, Optional, cast
 
 import pyarrow as pa
 from pyspark.sql.datasource import (
-    CaseInsensitiveDict,
     DataSource,
     DataSourceStreamReader,
     InputPartition,
 )
 from pyspark.sql.datasource_internal import _streamReader
+from pyspark.sql.pandas.types import to_arrow_schema
 from pyspark.sql.types import StructType
 from pyspark.sql.worker.plan_data_source_read import records_to_arrow_batches
 from pyspark.worker_util import pickleSer
@@ -16,9 +16,8 @@ from typeguard import typechecked
 
 from pyspark_data_source_driver.read_driver import ReadDriverBase
 
-logger = logging.getLogger(__name__)
 
-_sentinel = object()
+logger = logging.getLogger(__name__)
 
 
 @typechecked  # Enable runtime type checking
@@ -57,7 +56,7 @@ class StreamReadDriver(ReadDriverBase):
     ...         self.current += self.batch_size
     ...         return {"offset": self.current}
     ...
-    ...     def partitions(self, start: dict, end: dict) -> Sequence[InputPartition]:
+    ...     def partitions(self, start: dict, end: dict):
     ...         return [InputPartition(i) for i in range(start["offset"], end["offset"])]
     ...
     ...     def read(self, partition):
@@ -111,7 +110,8 @@ class ReaderStream:
             return None
         partitions = self.reader.partitions(self.start, latest)
         result = pa.Table.from_batches(
-            batch for part in partitions for batch in self._read(part)
+            (batch for part in partitions for batch in self._read(part)),
+            schema=to_arrow_schema(self.schema),
         )
         self.start = latest
         return result
