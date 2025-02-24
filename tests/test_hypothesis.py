@@ -1,0 +1,4 @@
+from pyspark_data_source_driver import StreamReadDriver
+from pyspark_data_source_driver.examples import CounterDataSource
+
+TestCounter = StreamReadDriver(CounterDataSource).hypothesis_state_machine().TestCase

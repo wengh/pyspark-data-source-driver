@@ -51,7 +51,7 @@ class CounterDataSourceStreamReader(DataSourceStreamReader):
 
 
 def test_read():
-    stream = StreamReadDriver(CounterDataSource).options(sizes="[3, 3]").load()
+    stream = iter(StreamReadDriver(CounterDataSource).options(sizes="[3, 3]").load())
     assert next(stream).to_pydict() == {"id": [0, 1, 2]}
     assert next(stream).to_pydict() == {"id": [3, 4, 5]}
 
@@ -66,7 +66,7 @@ def test_commit():
             self.log(end["offset"])
             self.current += 1
 
-    stream = StreamReadDriver(MyDataSource).options(sizes="[2, 2, 2]").load()
+    stream = iter(StreamReadDriver(MyDataSource).options(sizes="[2, 2, 2]").load())
     assert next(stream).to_pydict() == {"id": [0, 1]}
     assert next(stream).to_pydict() == {"id": [2, 3]}
     assert next(stream).to_pydict() == {"id": [4, 5, 6]}
@@ -118,7 +118,9 @@ class TestCallSequence:
     ]
 
     def test_call_sequence_driver(self):
-        stream = StreamReadDriver(self.MyDataSource).options(**self.options).load()
+        stream = iter(
+            StreamReadDriver(self.MyDataSource).options(**self.options).load()
+        )
         assert next(stream).to_pydict() == {"id": [0, 1, 2]}
         assert next(stream).to_pydict() == {"id": [3, 4, 5]}
         with pytest.raises(CounterFinished) as excinfo:
@@ -170,11 +172,11 @@ def test_offset_no_change():
             return {"offset": self.current // 2}
 
     driver = StreamReadDriver(MyDataSource).options(sizes="[0, 1, 0, 1]")
-    stream = driver.load()
+    stream = iter(driver.load())
     assert next(stream).to_pydict() == {"id": [0]}
     assert next(stream).to_pydict() == {"id": [1]}
 
-    stream = driver.load()
+    stream = iter(driver.load())
     assert stream.next_nonblocking() is None
     assert stream.next_nonblocking().to_pydict() == {"id": [0]}
     assert stream.next_nonblocking() is None
